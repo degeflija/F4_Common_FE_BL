@@ -1,0 +1,13 @@
+#ifndef __BABASICFONT_H
+#define __BABASICFONT_H
+
+#include "stdint.h"
+
+#define BABASICFONT_CHARWIDTH   8
+#define BABASICFONT_CHARHEIGHT  14
+#define BABASICFONT_CELLWIDTH   9
+#define BABASICFONT_CELLHEIGHT  15
+
+extern const uint8_t baBasicFont[62 * BABASICFONT_CHARHEIGHT];
+
+#endif // __BABASICFONT_H
