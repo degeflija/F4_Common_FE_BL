@@ -30,13 +30,13 @@ void HexVersion2String ( char * dest, const uint32_t version_as_hex )
   uint32_t  major = ( ( version_as_hex & 0x0f000000 ) >> 24 ) +
                     ( ( version_as_hex & 0xf0000000 ) >> 24 ) / 16 * 10;
 
-  portable_itoa ( major, (char*) dest, 2 );
-  PostFix_Char ('.', (char*) dest );
-  portable_itoa2 ( minor, (char*) buf_minor, 2, true, '0' );
-  portable_strcat ( (char*) dest, (const char*) buf_minor );
-  portable_strcat ( (char*) dest, (const char*) txt_Build );
-  portable_itoa2 ( build, (char*) buf_build, 4, true, ' ' );
-  portable_strcat ( (char*) dest, (const char*) buf_build );
+  portable_itoa ( major, (char*)dest, 2 );
+  PostFix_Char ('.', (char*)dest );
+  portable_itoa2 ( minor, (char*)buf_minor, 2, true, '0' );
+  portable_strcat ( (char*)dest, (const char*) buf_minor );
+  portable_strcat ( (char*)dest, (const char*) txt_Build );
+  portable_itoa2 ( build, (char*)buf_build, 4, true, ' ' );
+  portable_strcat ( (char*)dest, (const char*) buf_build );
 
   //  #define VERSION_TXT5 "1.01 Build 15"
 }
@@ -71,9 +71,9 @@ void NMEA_append_tail ( char * buffer )
   {
     checksum ^= buffer[i];
   }
-  PostFix_Char ( HEX[checksum >> 4], (char*) buffer );
-  PostFix_Char ( HEX[checksum & 0x0f], (char*) buffer );
-  portable_strcat ( (char*) buffer, (const char*) txt_CRLF );
+  PostFix_Char ( HEX[checksum >> 4], (char*)buffer );
+  PostFix_Char ( HEX[checksum & 0x0f], (char*)buffer );
+  portable_strcat ( (char*)buffer, (const char*) txt_CRLF );
 }
 
 // ****************************************************************************
@@ -107,14 +107,14 @@ void EnforceExtension ( char * p_filename, const char * p_extension )
   }
 
   l_base_len = (uint16_t) portable_strlen ( p_filename );
-  l_ext_len  = (uint16_t) portable_strlen ( (char*) p_extension );
+  l_ext_len  = (uint16_t) portable_strlen ( (char*)p_extension );
 
   //
   //  Guard against overflowing the destination buffer before appending.
   //
   ASSERT ( ( l_base_len + l_ext_len ) < c_filename_size );
 
-  portable_strcpy ( &p_filename[l_base_len], (char*) p_extension );
+  portable_strcpy ( &p_filename[l_base_len], (char*)p_extension );
 }
 
 // ****************************************************************************
