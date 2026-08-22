@@ -7,7 +7,6 @@
 //#include  "FreeRTOS_wrapper.h"
 //#include  "Generic_Application_Includes.h"
 //
-//
 // *****************************************************************************
 //
 #ifndef  __task_FrontEnd_Hb
