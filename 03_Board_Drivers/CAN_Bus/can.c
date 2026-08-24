@@ -13,11 +13,51 @@
  *    CAN1_Init ( &hcan1 );     // diese Datei
  *
  *  Was uebernommen wurde von candriver.cpp:
- *    - Bus-Off: locked-Flag + 10s Timer + Re-Initialize
+ *    - Bus-Off: locked-Flag + Timer + Re-Initialize
  *    - TX-Queue mit ISR-getriebenem Senden (Klaus' elegante Loesung)
  *    - CAN1_RX0_IRQHandler: direkte Registerlesezugriffe
  *    - CAN1_TX_IRQHandler:  ISR-getriebenes Senden aus TX-Queue
  *    - CAN1_SCE_IRQHandler: Bus-Off -> locked + Timer
+ *
+ *  ---------------------------------------------------------------------
+ *  Korrektur August 2026 -- Dauer-Reinit-Zyklus
+ *  ---------------------------------------------------------------------
+ *  Symptom: FE<->Audio lief staendig in Timeouts, CAN war ca. 2x pro
+ *  Sekunde fuer 50..549ms komplett tot. Breakpoint im SCE-Handler wurde
+ *  erreicht, CAN1->ESR war dabei aber 0 (kein LEC, kein EWGF/EPVF/BOFF,
+ *  TEC=REC=0) -- es gab also gar keinen Fehler.
+ *
+ *  Drei Ursachen, die sich gegenseitig am Leben hielten:
+ *
+ *  (1) CAN1_SCE_IRQHandler hat weder MSR noch ESR ausgewertet, sondern
+ *      bedingungslos IER=0 gesetzt und s_locked=true. Damit war auch der
+ *      RX-Interrupt aus -- der Bus war in BEIDEN Richtungen tot, nicht
+ *      nur beim Senden.
+ *
+ *  (2) CAN1_configure hat neben BOFIE auch LECIE, EWGIE und EPVIE
+ *      aktiviert. LEC feuert bei JEDEM einzelnen fehlerhaften Bit,
+ *      EWGF schon ab Fehlerzaehler 96 -- beides Zustaende, aus denen
+ *      sich bxCAN von selbst erholt und die keine Recovery brauchen.
+ *      Nur Bus-Off (BOFF) braucht ein Re-Initialize.
+ *
+ *  (3) Kein NVIC_ClearPendingIRQ vor NVIC_EnableIRQ. HAL_CAN_DeInit()
+ *      setzt CAN_MCR_RESET; laeuft dabei noch eine Uebertragung, setzt
+ *      die Hardware ERRI und das NVIC-Pending-Bit rastet ein. Das
+ *      anschliessende "CANx->MSR = CAN_MSR_ERRI_Msk" loescht nur das
+ *      Peripherie-Flag, nicht das NVIC-Pending-Bit. NVIC_EnableIRQ
+ *      springt dann sofort in den SCE-Handler -- mit sauberem ESR,
+ *      weil die Peripherie zwischenzeitlich resettet wurde.
+ *      -> sperren -> Timer -> CAN1_configure -> DeInit -> von vorn.
+ *
+ *  Massnahmen:
+ *    - SCE-Handler wertet ESR aus und sperrt NUR bei echtem BOFF.
+ *      Alles andere wird quittiert, gezaehlt und ignoriert.
+ *    - Nur BOFIE (+ERRIE als Sammel-Enable) aktiv, kein LECIE/EWGIE/EPVIE.
+ *    - NVIC-IRQs vor dem DeInit ab, Pending-Bits nach dem Konfigurieren
+ *      geloescht, erst dann wieder an.
+ *    - LEC wird beim Quittieren auf 0b111 ("set by software") gesetzt,
+ *      damit ein alter Fehlercode nicht stehenbleibt.
+ *    - Diagnosezaehler s_sce_* / s_tx_dropped_cnt, im Debugger lesbar.
  */
 
 #include "can.h"
@@ -27,6 +67,12 @@
  * Hardware -- CAN Instanz
  * ----------------------------------------------------------------------- */
 #define CANx    CAN1
+
+/* Fehler-Interrupts, die wir tatsaechlich brauchen.
+ * ERRIE ist das Sammel-Enable fuer den SCE-Interrupt, BOFIE waehlt die
+ * einzige Bedingung aus, die eine Recovery erfordert.
+ * LECIE / EWGIE / EPVIE bewusst NICHT -- siehe Kopfkommentar (2).        */
+#define CAN1_ERROR_IT_MASK      ( CAN_IER_ERRIE | CAN_IER_BOFIE )
 
 /* -----------------------------------------------------------------------
  * Interne Zustandsvariablen -- muessen in common_data liegen,
@@ -41,13 +87,25 @@ static COMMON TimerHandle_t      s_reset_timer = NULL;
 static COMMON volatile bool      s_locked      = true;
 
 /* -----------------------------------------------------------------------
+ * Diagnosezaehler -- nur zum Mitlesen im Debugger, keine Funktion.
+ *   s_sce_bus_off_cnt   : echte Bus-Off Ereignisse (Recovery gelaufen)
+ *   s_sce_ignored_cnt   : SCE-Interrupt ohne BOFF (Warnung o. spurious)
+ *   s_last_esr          : ESR-Inhalt beim letzten SCE-Interrupt
+ *   s_tx_dropped_cnt    : Pakete, die waehrend der Sperre verworfen wurden
+ * ----------------------------------------------------------------------- */
+static COMMON volatile uint32_t  s_sce_bus_off_cnt = 0;
+static COMMON volatile uint32_t  s_sce_ignored_cnt = 0;
+static COMMON volatile uint32_t  s_last_esr        = 0;
+static COMMON volatile uint32_t  s_tx_dropped_cnt  = 0;
+
+/* -----------------------------------------------------------------------
  * Vorwaerts-Deklarationen
  * ----------------------------------------------------------------------- */
 static void CAN1_configure ( void );
 static bool CAN1_send_packet ( const CAN_Packet_t *msg );
 
 /* -----------------------------------------------------------------------
- * Timer-Callback -- nach 10s Bus-Off: vollstaendiges Re-Initialize
+ * Timer-Callback -- nach Bus-Off: vollstaendiges Re-Initialize
  * ----------------------------------------------------------------------- */
 static void CAN1_reset_timer_callback ( TimerHandle_t xTimer )
 {
@@ -90,6 +148,19 @@ void CAN1_Init ( CAN_HandleTypeDef *hcan )
  * ----------------------------------------------------------------------- */
 static void CAN1_configure ( void )
 {
+    /* Solange umkonfiguriert wird, darf nichts gesendet werden.           */
+    s_locked = true;
+
+    /* NVIC ZUERST abschalten.
+     * HAL_CAN_DeInit() weiter unten setzt CAN_MCR_RESET. Laeuft dabei noch
+     * eine Uebertragung, meldet die Hardware einen Fehler -> ERRI -> das
+     * NVIC-Pending-Bit rastet ein und wuerde beim spaeteren EnableIRQ
+     * sofort einen Interrupt ausloesen, obwohl die Peripherie danach
+     * blitzsauber ist (ESR == 0). Genau das war der Dauerzyklus.          */
+    NVIC_DisableIRQ ( CAN1_RX0_IRQn );
+    NVIC_DisableIRQ ( CAN1_TX_IRQn  );
+    NVIC_DisableIRQ ( CAN1_SCE_IRQn );
+
     /* GPIO fuer CAN1 auf AD57_FE Hardware: PA11 = RX, PA12 = TX, AF9
      * Wird bei Init und bei jedem Bus-Off Re-Initialize neu gesetzt.       */
     __HAL_RCC_CAN1_CLK_ENABLE();
@@ -126,8 +197,24 @@ static void CAN1_configure ( void )
     if ( HAL_CAN_Start ( s_hcan ) != HAL_OK )
         Error_Handler();
 
-    /* NVIC -- identisch mit candriver.cpp Prioritaeten */
+    /* Peripherie-Flags quittieren, BEVOR die Interrupts scharf werden.
+     * ERRI ist rc_w1. LEC wird auf 0b111 ("set by software") gesetzt,
+     * damit kein alter Fehlercode stehenbleibt.                          */
+    CANx->MSR  = CAN_MSR_ERRI_Msk;
+    CANx->ESR  = CAN_ESR_LEC;
+
+    /* Interrupts in der Peripherie aktivieren */
+    CANx->IER |= CAN_IT_RX_FIFO0_MSG_PENDING;
+    CANx->IER |= CAN1_ERROR_IT_MASK;
+
+    /* NVIC -- identisch mit candriver.cpp Prioritaeten.
+     * Pending-Bits erst JETZT loeschen: alles, was waehrend DeInit/Init
+     * aufgelaufen ist, gehoert zur alten Sitzung und ist erledigt.       */
     uint32_t pg = NVIC_GetPriorityGrouping();
+
+    NVIC_ClearPendingIRQ ( CAN1_RX0_IRQn );
+    NVIC_ClearPendingIRQ ( CAN1_TX_IRQn  );
+    NVIC_ClearPendingIRQ ( CAN1_SCE_IRQn );
 
     NVIC_SetPriority ( CAN1_RX0_IRQn, NVIC_EncodePriority ( pg, 15, 0 ) );
     NVIC_EnableIRQ   ( CAN1_RX0_IRQn );
@@ -137,12 +224,6 @@ static void CAN1_configure ( void )
 
     NVIC_SetPriority ( CAN1_SCE_IRQn, NVIC_EncodePriority ( pg, 14, 0 ) );
     NVIC_EnableIRQ   ( CAN1_SCE_IRQn );
-
-    /* Interrupts aktivieren */
-    CANx->MSR  = CAN_MSR_ERRI_Msk;   /* pending errors loeschen */
-    CANx->IER |= CAN_IT_RX_FIFO0_MSG_PENDING;
-    CANx->IER |= CAN_IER_BOFIE | CAN_IER_LECIE | CAN_IER_EPVIE
-               | CAN_IER_EWGIE | CAN_IER_ERRIE;
 
     s_locked = false;   /* Bus freigeben */
 }
@@ -172,13 +253,25 @@ static bool CAN1_send_packet ( const CAN_Packet_t *msg )
 
 /* -----------------------------------------------------------------------
  * CAN1_Send -- aus Task-Kontext
+ *
+ *  HINWEIS zum Rueckgabewert bei s_locked:
+ *  Es wird weiterhin "true" gemeldet, obwohl das Paket verworfen wird.
+ *  Das ist bewusst so belassen -- die Aufrufer in task_CAN_Bus_Sender.c
+ *  haengen ein ASSERT ( l_Send_OK ) daran, das sonst bei jedem echten
+ *  Bus-Off das System anhalten wuerde. Der Verlust ist stattdessen ueber
+ *  s_tx_dropped_cnt sichtbar. Wer den ehrlichen Rueckgabewert will,
+ *  aendert die eine Zeile auf "return false" UND entfernt vorher die
+ *  betreffenden ASSERTs im Sender.
  * ----------------------------------------------------------------------- */
 uint32_t CAN1_Send ( CAN_HandleTypeDef *hcan, CAN_Packet_t p, uint32_t wait_ms )
 {
     (void) hcan;   /* hcan1 implizit ueber s_hcan */
 
     if ( s_locked )
-        return true;    /* still ignorieren */
+    {
+        s_tx_dropped_cnt++;
+        return true;    /* still ignorieren -- siehe Hinweis oben */
+    }
 
     CANx->IER &= ~CAN_IT_TX_MAILBOX_EMPTY;
 
@@ -266,15 +359,39 @@ void CAN1_TX_IRQHandler ( void )
 
 /* -----------------------------------------------------------------------
  * ISR: CAN1_SCE_IRQHandler -- Bus-Off Erkennung
+ *
+ *  Wertet jetzt ESR aus, bevor irgendetwas gesperrt wird. Nur ein echtes
+ *  Bus-Off (BOFF) loest die Recovery aus. Alles andere -- Warnung,
+ *  Error-Passive, Einzelbitfehler oder ein spurious Interrupt aus einem
+ *  stehengebliebenen NVIC-Pending-Bit -- wird quittiert, gezaehlt und
+ *  ignoriert; bxCAN erholt sich davon selbst.
  * ----------------------------------------------------------------------- */
 void CAN1_SCE_IRQHandler ( void )
 {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-    CANx->IER = 0;
-    CANx->MSR = CAN_MSR_ERRI_Msk;
+    uint32_t l_esr = CANx->ESR;
+    s_last_esr = l_esr;
 
-    s_locked = true;
+    /* Peripherie-Flag quittieren (ERRI ist rc_w1) und LEC neutralisieren,
+     * damit ein alter Fehlercode nicht stehenbleibt.                     */
+    CANx->MSR = CAN_MSR_ERRI_Msk;
+    CANx->ESR = CAN_ESR_LEC;
+
+    if ( ( l_esr & CAN_ESR_BOFF ) == 0U )
+    {
+        /* Kein Bus-Off -> Bus bleibt in Betrieb, nichts wird gesperrt. */
+        s_sce_ignored_cnt++;
+        portYIELD_FROM_ISR ( xHigherPriorityTaskWoken );
+        return;
+    }
+
+    /* ------------------------- echtes Bus-Off ------------------------- */
+
+    s_sce_bus_off_cnt++;
+
+    CANx->IER = 0;
+    s_locked  = true;
 
     /* Stagger: Timer-Periode pro Geraet verschieden (UID-basiert: 50..549 ms).
      * Verhindert synchronen Re-Init beider Peers nach Bus-Off.
