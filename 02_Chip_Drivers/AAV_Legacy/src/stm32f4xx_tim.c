@@ -117,6 +117,14 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f4xx_tim.h"
+
+//  assert_param kommt in der StdPeriph-Welt aus stm32f4xx_conf.h, das hier
+//  nicht eingebunden ist ( Warnung "implicit declaration of assert_param" ).
+//  Leer, wie in der StdPeriph-Vorlage ohne USE_FULL_ASSERT.
+//
+#ifndef assert_param
+  #define assert_param(expr) ((void)0U)
+#endif
 #include "stm32f4xx_rcc.h"
 
 /** @addtogroup STM32F4xx_StdPeriph_Driver
