@@ -338,16 +338,42 @@ void CAN1_RX0_IRQHandler ( void )
 
 /* -----------------------------------------------------------------------
  * ISR: CAN1_TX_IRQHandler
+ *
+ *  FIX 16.09.2026 : Rahmenverlust auf dem Queue-Weg.
+ *
+ *  Der Interrupt "Sendefach leer" ( TMEIE ) steht an, solange eines der
+ *  Bits RQCP0..2 in TSR gesetzt ist. Diese Bits wurden nie quittiert. Folge :
+ *  sobald CAN1_Send() einen Rahmen in die s_TX_queue legte ( alle drei
+ *  Sendefaecher belegt ) und TMEIE wieder einschaltete, sprang dieser
+ *  Interrupt SOFORT an, holte den Rahmen aus der Queue, fand kein freies
+ *  Sendefach - CAN1_send_packet() lieferte false, das wurde ignoriert -
+ *  und der Rahmen war verloren.
+ *
+ *  Jetzt :
+ *    1. RQCP0..2 quittieren ( rc_w1 ; das loescht auch TXOK/ALST/TERR des
+ *       jeweiligen Fachs, ABRQ wird mit 0 nicht beruehrt ).
+ *    2. Ist kein Sendefach frei, bleibt der Rahmen in der Queue. Wird ein
+ *       Fach fertig, setzt die Hardware RQCPx und dieser Interrupt kommt
+ *       erneut.
+ *    3. Nur bei freiem Fach wird aus der Queue geholt und gesendet.
  * ----------------------------------------------------------------------- */
 void CAN1_TX_IRQHandler ( void )
 {
     CAN_Packet_t msg;
     BaseType_t   xHigherPriorityTaskWoken = pdFALSE;
 
+    CANx->TSR = CAN_TSR_RQCP0 | CAN_TSR_RQCP1 | CAN_TSR_RQCP2;
+
+    if ( ( CANx->TSR & ( CAN_TSR_TME0 | CAN_TSR_TME1 | CAN_TSR_TME2 ) ) == 0 )
+    {
+        //  kein Fach frei : Rahmen bleibt in der Queue, TMEIE bleibt an
+        return;
+    }
+
     if ( xQueueReceiveFromISR ( s_TX_queue, &msg,
                                 &xHigherPriorityTaskWoken ) == pdTRUE )
     {
-        CAN1_send_packet ( &msg );
+        (void) CAN1_send_packet ( &msg );   //  Fach ist frei, siehe oben
     }
     else
     {
