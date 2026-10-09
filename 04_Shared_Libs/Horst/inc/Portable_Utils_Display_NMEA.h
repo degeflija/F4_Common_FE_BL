@@ -12,7 +12,7 @@
   *           Translator_Tables.h.
   *
   *           Used by AD57_FE_GIT and AD57_BL_GIT only - F4_GenBL_GIT and
-  *           F4_P_Util_GIT have no display and no persisted filenames, so
+  *           F4_Audio_GIT have no display and no persisted filenames, so
   *           they never call these. Candidate for the F4_Common_FE_BL
   *           common-tier repo, alongside Portable_Utils.c/.h itself.
   * ###########################################################################

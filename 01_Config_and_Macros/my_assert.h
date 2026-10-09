@@ -45,7 +45,7 @@
 //  damit dieser Header keine Include-Reihenfolge erzwingt.
 //
 //  Inhaltlich identisch zu UNDER_DEBUGGER() aus System_Configuration.h
-//  (F4_GenBL / F4_P_Util).
+//  (F4_GenBL / F4_Audio).
 //
 #ifndef ASSERT_DEBUGGER_ATTACHED
   #define ASSERT_DEBUGGER_ATTACHED()                                          \
