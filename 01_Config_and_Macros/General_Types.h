@@ -33,7 +33,7 @@
 
   //
   // ***************************************************************************
-  // Kartesische Koordinaten int32
+  // Cartesian coordinates int32
   //
   typedef struct
   {
@@ -42,7 +42,7 @@
   } point_i32_t;
 
   // ***************************************************************************
-  // Kartesische Koordinaten int16
+  // Cartesian coordinates int16
   //
   typedef struct
   {
@@ -51,7 +51,7 @@
   } point_i16_t;
 
   // ***************************************************************************
-  // Kartesische Koordinaten int8
+  // Cartesian coordinates int8
   //
   typedef struct
   {
@@ -60,7 +60,7 @@
   } point_i8_t;
 
   // ***************************************************************************
-  // Kartesische Koordinaten float
+  // Cartesian coordinates float
   //
   typedef struct
   {
@@ -70,7 +70,7 @@
   } CartCoord_t;
 
   // ***************************************************************************
-  // Kurs in Grad und Radian
+  // Heading in degrees and radians
   //
   typedef float deg_course_t;
   typedef float rad_course_t;
@@ -96,7 +96,7 @@
   } PolRadCoord_t;
 
   // ***************************************************************************
-  // Geographische Koordinaten RAD float
+  // Geographic coordinates RAD float
   //
   typedef struct
   {

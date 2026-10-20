@@ -4,54 +4,55 @@
  * @author  Dr. Klaus Schaefer klaus.schaefer@h-da.de
  *
  * ---------------------------------------------------------------------------
- *  LINT-Fix September 2026  (Befunde A3 und A4)
+ *  LINT fix September 2026  (findings A3 and A4)
  *
- *  Alte Fassung:   #define ASSERT(x) if((x)==0) asm("bkpt 0")
+ *  Old version:    #define ASSERT(x) if((x)==0) asm("bkpt 0")
  *
- *  Problem 1 (A3) : BKPT loest auf dem Cortex-M4 einen HardFault aus, wenn
- *                   KEIN Debugger angeschlossen ist. DEBUG war fest auf 1
- *                   verdrahtet, also war jeder der rund 390 ASSERT-Aufrufe
- *                   auch im ausgelieferten Geraet scharf und konnte das
- *                   Geraet im Flug aufhaengen.
+ *  Problem 1 (A3) : On the Cortex-M4, BKPT causes a HardFault when NO
+ *                   debugger is attached. DEBUG was hard-wired to 1, so
+ *                   each of the about 390 ASSERT calls was also armed in
+ *                   the shipped device and could hang the device in
+ *                   flight.
  *
- *  Problem 2 (A4) : Das nackte "if" ohne do/while(0) bindet ein nachfolgendes
- *                   "else" an das if des Makros statt an das des Aufrufers.
- *                   Heute ist keine Aufrufstelle davon betroffen (alle 392
- *                   geprueft), es bleibt aber eine Falle fuer spaeter.
+ *  Problem 2 (A4) : The bare "if" without do/while(0) binds a following
+ *                   "else" to the if of the macro, not to the if of the
+ *                   caller. Today no call site is affected (all 392
+ *                   checked), but it stays a trap for later.
  *
- *  Neue Fassung:
+ *  New version:
  *
- *    - Der BKPT wird nur noch ausgefuehrt, wenn tatsaechlich ein Debugger
- *      angeschlossen ist. Beim Debuggen aendert sich damit NICHTS -- man
- *      haelt weiterhin an genau derselben Stelle an. Im Feld laeuft das
- *      Geraet ueber die Stelle hinweg, statt hart auszusteigen.
+ *    - BKPT now runs only when a debugger is really attached. So NOTHING
+ *      changes while debugging -- you still stop at exactly the same
+ *      place. In the field the device runs past that place instead of
+ *      stopping hard.
  *
- *    - do { } while(0) macht das Makro zu einer echten Anweisung.
+ *    - do { } while(0) makes the macro a real statement.
  *
- *    - DEBUG wird nur noch gesetzt, falls es nicht schon definiert ist
- *      (das Projekt uebergibt -DDEBUG). Verhalten bleibt unveraendert.
+ *    - DEBUG is now set only if it is not defined yet
+ *      (the project passes -DDEBUG). The behavior stays the same.
  * ---------------------------------------------------------------------------
- *  11.10.2026  Fault bei ASSERT in Tasks ohne Privileg (Horsts Variante B)
+ *  11.10.2026  Fault on ASSERT in tasks without privilege (Horst's Variant B)
  *
- *  Problem : Die Frage "Debugger dran ?" liest das Register DHCSR
- *            (0xE000EDF0). Das darf nur privilegierter Code. In den
- *            restricted Tasks (MPU) loeste schon die Frage einen Bus Fault
- *            aus (BFSR 0x82, BFAR 0xE000EDF0) - auch im Flug ohne Debugger,
- *            das Geraet hing. Gefunden am 11.10.2026 mit dem FE allein am
- *            Bus : ASSERT ( l_Send_OK ) in task_CAN_Bus_Sender.c.
+ *  Problem : The check "debugger attached ?" reads the register DHCSR
+ *            (0xE000EDF0). Only privileged code may do this. In the
+ *            restricted tasks (MPU) the check alone caused a Bus Fault
+ *            (BFSR 0x82, BFAR 0xE000EDF0) - also in flight without a
+ *            debugger, and the device hung. Found on 11.10.2026 with the
+ *            FE alone on the bus : ASSERT ( l_Send_OK ) in
+ *            task_CAN_Bus_Sender.c.
  *
- *  Loesung : Assert_Debugger_Attached () unterscheidet :
- *    - privilegiert (Interrupt, Handler, main, privilegierte Tasks) :
- *      DHCSR wird wie bisher direkt gelesen.
- *    - ohne Privileg : es gilt die Momentaufnahme
- *      g_Assert_Debugger_Attached, die main() beim Start mit
- *      Assert_Capture_Debugger_State () aus DHCSR holt. Die Variable liegt
- *      im COMMON_BLOCK, den alle restricted Tasks lesen duerfen.
- *  Einschraenkung : wird der Debugger erst NACH dem Start angehaengt,
- *  halten ASSERTs in Tasks ohne Privileg nicht an.
+ *  Solution : Assert_Debugger_Attached () makes a difference :
+ *    - privileged (interrupt, handler, main, privileged tasks) :
+ *      DHCSR is read directly, as before.
+ *    - without privilege : the snapshot g_Assert_Debugger_Attached is
+ *      used. main() takes it from DHCSR at start-up with
+ *      Assert_Capture_Debugger_State (). The variable lives in the
+ *      COMMON_BLOCK, which all restricted tasks may read.
+ *  Limitation : if the debugger is attached only AFTER start-up,
+ *  ASSERTs in tasks without privilege do not stop.
  *
- *  Die Variable ist in emergency.c des jeweiligen Projekts definiert
- *  (AD57_FE und AD57_BL).
+ *  The variable is defined in emergency.c of each project
+ *  (AD57_FE and AD57_BL).
  * ---------------------------------------------------------------------------
  */
 
@@ -61,13 +62,13 @@
 #include <stdint.h>
 
 //
-//  Debug Halting Control and Status Register (DHCSR), ARMv7-M, feste Adresse.
-//  Bit 0 (C_DEBUGEN) ist gesetzt, solange ein Debugger angeschlossen ist.
-//  Bewusst ueber die nackte Adresse und nicht ueber CoreDebug aus core_cm4.h,
-//  damit dieser Header keine Include-Reihenfolge erzwingt.
+//  Debug Halting Control and Status Register (DHCSR), ARMv7-M, fixed address.
+//  Bit 0 (C_DEBUGEN) is set as long as a debugger is attached.
+//  We use the bare address on purpose and not CoreDebug from core_cm4.h,
+//  so this header does not force an include order.
 //
-//  11.10.2026 : DHCSR wird nur noch im privilegierten Code gelesen, siehe
-//  Kopf dieser Datei.
+//  11.10.2026 : DHCSR is now read only in privileged code, see the
+//  head of this file.
 //
 #define   ASSERT_DHCSR_ADDRESS    0xE000EDF0UL
 
@@ -75,14 +76,14 @@
 extern "C" {
 #endif
 
-//  Momentaufnahme "Debugger dran" vom Start, 0 = nein, 1 = ja.
-//  Definiert in emergency.c, im COMMON_BLOCK.
+//  Snapshot "debugger attached" from start-up, 0 = no, 1 = yes.
+//  Defined in emergency.c, in the COMMON_BLOCK.
 //
 extern volatile uint32_t g_Assert_Debugger_Attached;
 
-//  true, wenn der Code gerade privilegiert laeuft : im Handler-Modus
-//  ( IPSR != 0 ) immer, im Thread-Modus nur mit CONTROL.nPRIV = 0.
-//  MRS auf IPSR und CONTROL ist auch ohne Privileg erlaubt.
+//  true if the code is running privileged right now : always in handler
+//  mode ( IPSR != 0 ), in thread mode only with CONTROL.nPRIV = 0.
+//  MRS on IPSR and CONTROL is allowed even without privilege.
 //
 static inline uint32_t Assert_Is_Privileged ( void )
 {
@@ -95,8 +96,8 @@ static inline uint32_t Assert_Is_Privileged ( void )
   return ( ( l_ipsr != 0 ) || ( ( l_control & 1UL ) == 0 ) );
 }
 
-//  Einmal aus main() aufrufen, solange main() noch privilegiert laeuft
-//  ( vor dem Start des Schedulers ).
+//  Call once from main(), while main() still runs privileged
+//  ( before the scheduler starts ).
 //
 static inline void Assert_Capture_Debugger_State ( void )
 {
@@ -147,11 +148,11 @@ static inline uint32_t Assert_Debugger_Attached ( void )
 #endif
 
 //
-//  Fuer die rund 90 Stellen, die BKPT direkt per asm() setzen: dieselbe
-//  Absicherung als eigenstaendiges Makro, damit sie schrittweise umgestellt
-//  werden koennen ( asm("bkpt 0");  ->  TRAP_IF_DEBUGGER(); ).
-//  In den Fault-Handlern (emergency.c) bewusst NICHT verwenden -- dort ist
-//  der harte Stopp gewollt.
+//  For the about 90 places that set BKPT directly with asm(): the same
+//  protection as a separate macro, so they can be changed step by step
+//  ( asm("bkpt 0");  ->  TRAP_IF_DEBUGGER(); ).
+//  Do NOT use it in the fault handlers (emergency.c) -- there the hard
+//  stop is wanted.
 //
 #define TRAP_IF_DEBUGGER()                                                    \
           do                                                                  \

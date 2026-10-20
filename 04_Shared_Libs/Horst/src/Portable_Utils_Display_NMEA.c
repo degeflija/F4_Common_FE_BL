@@ -113,10 +113,10 @@ void EnforceExtension ( char * p_filename, const char * p_extension )
   //  Guard against overflowing the destination buffer before appending.
   //
   //
-  //  LINT-Fix 1 : das ASSERT war die einzige Schranke vor dem strcpy. Seit es
-  //  nicht mehr hart stoppt (Fix A3) wuerde ein zu langer Name still hinter
-  //  p_filename[c_filename_size] schreiben. Statt dessen wird die Basis jetzt
-  //  so weit gekuerzt, dass die Erweiterung samt Null-Byte noch hineinpasst.
+  //  LINT-Fix 1 : the ASSERT was the only barrier before the strcpy. Since it
+  //  no longer stops hard (Fix A3), a name that is too long would silently
+  //  write past p_filename[c_filename_size]. Instead, the base name is now
+  //  cut short so that the extension plus the null byte still fit.
   //
   ASSERT ( ( l_base_len + l_ext_len ) < c_filename_size );
 
