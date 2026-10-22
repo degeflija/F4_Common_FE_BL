@@ -4,9 +4,8 @@
   * @brief    New Vario
   * @author   Horst Rupp
   * @brief    Header file the routine to output the graphical image for the
-  *           horizon page.  TODO
-  * ############################################################################
-  */
+  *           horizon page.  * ############################################################################
+*/
 
 #ifndef  __BuildTextPage_h
   #define  __BuildTextPage_h

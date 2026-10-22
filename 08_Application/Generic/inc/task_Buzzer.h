@@ -3,7 +3,7 @@
   * @file     task_Buzzer.h
   * @brief    New Vario
   * @author   Horst Rupp 
-  * @brief    This task TODO
+  * @brief
   * ###########################################################################
   */
 //
