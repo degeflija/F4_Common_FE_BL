@@ -35,7 +35,11 @@ void HexVersion2String ( char * dest, const uint32_t version_as_hex )
   portable_itoa2 ( minor, (char*)buf_minor, 2, true, '0' );
   portable_strcat ( (char*)dest, (const char*) buf_minor );
   portable_strcat ( (char*)dest, (const char*) txt_Build );
-  portable_itoa2 ( build, (char*)buf_build, 4, true, ' ' );
+  //  23.10.2026 ( Horst ) : build number without leading blanks.
+  //  Before, it was padded to 4 places ( "Build   26" ). On the version
+  //  page that pushed the last character under the right rim of the line.
+  //
+  portable_itoa ( build, (char*)buf_build, 4 );
   portable_strcat ( (char*)dest, (const char*) buf_build );
 
   //  #define VERSION_TXT5 "1.01 Build 15"

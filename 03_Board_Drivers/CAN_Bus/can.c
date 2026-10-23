@@ -59,10 +59,36 @@
  *      so an old error code does not stay.
  *    - Diagnostic counters s_sce_* / s_tx_dropped_cnt, readable in the
  *      debugger.
+ *
+ *  ---------------------------------------------------------------------
+ *  23.10.2026 -- hardware ID filter in AD57_BL
+ *  ---------------------------------------------------------------------
+ *  Symptom: audio flash from AD57_BL with a second AD57 on the bus :
+ *  558 repeats at 62 %. Without the second AD57 : no repeats.
+ *
+ *  Cause: the filter let ALL ids pass. The RX queue holds only
+ *  CAN_RX_QUEUE_LEN ( 20 ) frames. The second AD57 ( FE application,
+ *  audio 50 Hz, HeartBeat, SYNC_INFO, Inter-FE ) plus the sensor box fill
+ *  it while task_ImageBuilder ( Prio 8 ) paints the progress page and
+ *  task_CAN_Bus_Receiver ( Prio 7 ) cannot empty it. The ISR then drops
+ *  the frame - sometimes an MDP ACK from F4_GenBL, so AD57_BL repeats.
+ *
+ *  Fix: in AD57_BL the filter passes only the three ids the BL uses :
+ *    0x200  c_CID_UTL_HeartBeat
+ *    0x340  c_CID_AD57_Requests_Audio_CAN_MDP_Initialize   ( INIT ACK )
+ *    0x350  c_CID_AD57_Requests_Audio_CAN_MDP_Continuance  ( data ACK )
+ *  All other frames are dropped by the bxCAN hardware : no interrupt,
+ *  no queue entry, no CPU time.
+ *  AD57_FE is unchanged : it still receives all ids.
  */
 
 #include "can.h"
 #include "main.h"
+#include "System_Configuration.h"   //  BUILD_AD57_BL / BUILD_AD57_FE
+
+#if ( defined BUILD_AD57_BL )
+  #include "Generic_CAN_Ids.h"      //  ids for the hardware filter
+#endif
 
 /* -----------------------------------------------------------------------
  * Hardware -- CAN Instanz
@@ -179,15 +205,29 @@ static void CAN1_configure ( void )
     HAL_CAN_DeInit  ( s_hcan );
     HAL_CAN_Init    ( s_hcan );
 
-    /* Filter: let all IDs pass -- same as in candriver.cpp */
     CAN_FilterTypeDef sFilterConfig = { 0 };
     sFilterConfig.FilterBank           = 0;
+#if ( defined BUILD_AD57_BL )
+    /* 23.10.2026 : AD57_BL -- only the three ids the BL uses, see head
+     * comment. 16-bit list mode : one filter bank holds four ids.
+     * 16-bit layout : STDID[10:0] in bits 15..5, RTR bit 4, IDE bit 3,
+     * so the value is ( id << 5 ) for a standard data frame.
+     * The fourth entry repeats 0x350, the bank has no free slot otherwise. */
+    sFilterConfig.FilterMode           = CAN_FILTERMODE_IDLIST;
+    sFilterConfig.FilterScale          = CAN_FILTERSCALE_16BIT;
+    sFilterConfig.FilterIdHigh         = (uint32_t) c_CID_UTL_HeartBeat                           << 5;
+    sFilterConfig.FilterIdLow          = (uint32_t) c_CID_AD57_Requests_Audio_CAN_MDP_Initialize  << 5;
+    sFilterConfig.FilterMaskIdHigh     = (uint32_t) c_CID_AD57_Requests_Audio_CAN_MDP_Continuance << 5;
+    sFilterConfig.FilterMaskIdLow      = (uint32_t) c_CID_AD57_Requests_Audio_CAN_MDP_Continuance << 5;
+#else
+    /* AD57_FE : let all IDs pass -- same as in candriver.cpp */
     sFilterConfig.FilterMode           = CAN_FILTERMODE_IDMASK;
     sFilterConfig.FilterScale          = CAN_FILTERSCALE_32BIT;
     sFilterConfig.FilterIdHigh         = 0x0000;
     sFilterConfig.FilterIdLow          = 0x0000;
     sFilterConfig.FilterMaskIdHigh     = 0x0000;
     sFilterConfig.FilterMaskIdLow      = 0x0000;
+#endif
     sFilterConfig.FilterFIFOAssignment = CAN_RX_FIFO0;
     sFilterConfig.FilterActivation     = ENABLE;
     sFilterConfig.SlaveStartFilterBank = 14;
