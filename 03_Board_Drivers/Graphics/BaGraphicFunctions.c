@@ -2,7 +2,7 @@
 #include "BaGraphicFunctions.h"
 #include "System_Configuration.h"
 #include "string.h"
-#include "embedded_math.h"
+#include <math.h>
 #include "stdint.h"
 
 
@@ -394,7 +394,7 @@ float ba_graphicsDrawFullRotatedTriangle(int x, int y, int w, int h, int16_t dir
     // surrounding circle
     // r = axbxc / Ax4
     float Ax4 = ((float)(w*h*2));
-    float b = VSQRTF( ((float)h*h) + ((float)w*w) * 0.25);
+    float b = sqrtf( ((float)h*h) + ((float)w*w) * 0.25);
     float r = (w*b*b) / Ax4;
 
     float xTop = 0.0;
@@ -402,25 +402,19 @@ float ba_graphicsDrawFullRotatedTriangle(int x, int y, int w, int h, int16_t dir
     float xBottom = w*0.5;
     float yBottom = h + yTop;
 
-#if 1 // #ifdef BUILD_AD57_FE
-    int xTopRot = (int)(xTop * COS(dirRad) - yTop * SIN(dirRad)) + x;
-    int yTopRot = (int)(xTop * SIN(dirRad) + yTop * COS(dirRad)) + y;
+    //  09.11.2026 ( Horst ) : Klaus_Math removed. cosf / sinf instead of
+    //  COS / SIN ( arm_cos_f32 / arm_sin_f32 ), each computed only once.
+    float l_cos = cosf ( dirRad );
+    float l_sin = sinf ( dirRad );
 
-    int xBottomLeftRot = (int)((-xBottom) * COS(dirRad) - yBottom * SIN(dirRad)) + x;
-    int yBottomLeftRot = (int)((-xBottom) * SIN(dirRad) + yBottom * COS(dirRad)) + y;
+    int xTopRot = (int)(xTop * l_cos - yTop * l_sin) + x;
+    int yTopRot = (int)(xTop * l_sin + yTop * l_cos) + y;
 
-    int xBottomRightRot = (int)(xBottom * COS(dirRad) - yBottom * SIN(dirRad)) + x;
-    int yBottomRightRot = (int)(xBottom * SIN(dirRad) + yBottom * COS(dirRad)) + y;
-//#else
-//    int xTopRot = (int)(xTop * cos(dirRad) - yTop * sin(dirRad)) + x;
-//    int yTopRot = (int)(xTop * sin(dirRad) + yTop * cos(dirRad)) + y;
-//
-//    int xBottomLeftRot = (int)((-xBottom) * cos(dirRad) - yBottom * sin(dirRad)) + x;
-//    int yBottomLeftRot = (int)((-xBottom) * sin(dirRad) + yBottom * cos(dirRad)) + y;
-//
-//    int xBottomRightRot = (int)(xBottom * cos(dirRad) - yBottom * sin(dirRad)) + x;
-//    int yBottomRightRot = (int)(xBottom * sin(dirRad) + yBottom * cos(dirRad)) + y;
-#endif
+    int xBottomLeftRot = (int)((-xBottom) * l_cos - yBottom * l_sin) + x;
+    int yBottomLeftRot = (int)((-xBottom) * l_sin + yBottom * l_cos) + y;
+
+    int xBottomRightRot = (int)(xBottom * l_cos - yBottom * l_sin) + x;
+    int yBottomRightRot = (int)(xBottom * l_sin + yBottom * l_cos) + y;
 
     ba_graphicsDrawFullTriangle(xTopRot, yTopRot, xBottomLeftRot, yBottomLeftRot, xBottomRightRot, yBottomRightRot, color);
 
@@ -868,8 +862,8 @@ static void rotateVertices(const BaVertex vertices[], BaVertex rotatedVertices[]
     int i;
 
     float dirRad = ((float)dir) * 0.0174532925;
-    float cosDir = COS(dirRad);
-    float sinDir = SIN(dirRad);
+    float cosDir = cosf(dirRad);
+    float sinDir = sinf(dirRad);
 
     for (i = 0; i < numVertices; i++)
     {

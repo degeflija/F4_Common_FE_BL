@@ -16,7 +16,7 @@
 
 // suppress multiple include warnings for stddef, which is included by multiple std libs
 //lint -e537 -e451
-#include <embedded_math.h>   // NULL-pointer type
+#include <math.h>   // NULL-pointer type
 //lint +e537 -e451
 
 #include <stdlib.h>
