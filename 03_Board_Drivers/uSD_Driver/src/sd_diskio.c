@@ -525,7 +525,12 @@ DRESULT SD_write(BYTE lun, const BYTE *buff, DWORD sector, UINT count)
 
           if (event.status == osEventMessage)
           {
-            if (event.value.v == READ_CPLT_MSG)
+            /*  21.11.2026 ( Horst ) : WRITE_CPLT_MSG instead of READ_CPLT_MSG.
+                The ST template waited for the read message after a write,
+                so the wait for the card ( BSP_SD_GetCardState ) was skipped
+                and the next sector was sent while the card was still busy -
+                lost or stale sectors in the log file at 512-byte borders. */
+            if (event.value.v == WRITE_CPLT_MSG)
             {
               timer = osKernelSysTick();
               /* block until SDIO IP is ready or a timeout occur */
@@ -534,7 +539,8 @@ DRESULT SD_write(BYTE lun, const BYTE *buff, DWORD sector, UINT count)
                 status = osMessageQueueGet(SDQueueID, (void *)&event, NULL, SD_TIMEOUT);
               xSemaphoreGive( SDIO_LTDC_mutex);
 
-              if ((status == osOK) && (event == READ_CPLT_MSG))
+              /*  21.11.2026 ( Horst ) : WRITE_CPLT_MSG, see above. */
+              if ((status == osOK) && (event == WRITE_CPLT_MSG))
               {
                 timer = osKernelGetTickCount();
                 /* block until SDIO IP is ready or a timeout occur */
